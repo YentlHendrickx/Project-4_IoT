@@ -50,7 +50,8 @@ def checkCRC(p1Object):
 
     try:
         crcIndex = p1Object.index(b'!')
-        objectCRC = p1Object[crcIndex + 1:].decode('ascii')
+        objectCRC = hex(
+            int(p1Object[crcIndex + 1:].decode('ascii').strip(), 16))
     except ValueError as e:
         print("Cannot convert found CRC to Hex: {0}\n".format(e))
 
@@ -58,9 +59,13 @@ def checkCRC(p1Object):
         return False
 
     # Calculate CRC
-    p1Object = p1Object[0:crcIndex+1]
-    print("OBJ", p1Object)
-    crc16 = hex(crcmod.predefined.mkCrcFun('crc-16')(p1Object))
+    p1Object = p1Object[:crcIndex + 1]
+
+    print(p1Object)
+
+    # print("OBJ", p1Object)
+    crc16 = hex(crcmod.predefined.mkPredefinedCrcFun(
+        'crc16')(p1Object))
 
     print("Calculated CRC:", crc16)
     print("Object CRC:", objectCRC)
