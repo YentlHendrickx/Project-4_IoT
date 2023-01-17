@@ -1,4 +1,4 @@
-# Serial read testfor P1 Port
+# Serial read test for P1 Port
 import serial
 
 PORT = "/dev/ttyUSB0"
