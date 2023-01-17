@@ -1,3 +1,5 @@
+
+
 # Serial read test for P1 Port
 import crcmod.predefined
 import re
@@ -6,7 +8,7 @@ from tabulate import tabulate
 PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 
-DEBUG = False
+DEBUG = True
 
 obisCodes = {
     "0-0:96.1.4":   "ID",
@@ -43,25 +45,27 @@ obisCodes = {
 
 
 def checkCRC(p1Object):
-    return True
-    objectCRC = -1
+    # return True
+    crcIndex = -1
 
-    # Get CRC
-    for match in re.compile(b'\r\n(?=!)').finditer(p1Object):
-        p1Contents = p1Object[:match.end() + 1].decode('ascii').strip()
-
-        objectCRC = hex(int(p1Contents, 16))
+    try:
+        crcIndex = p1Object.index(b'!')
+        objectCRC = p1Object[crcIndex + 1:].decode('ascii')
+    except ValueError as e:
+        print("Cannot convert found CRC to Hex: {0}\n".format(e))
 
     if objectCRC == -1:
         return False
 
     # Calculate CRC
-    crc16 = crcmod.predefined.mkCrcFun('crc-16')
-    calcCrc = hex(crc16((p1Object).encode('utf-8')))
-    print("Calculated CRC:", calcCrc)
+    p1Object = p1Object[0:crcIndex+1]
+    print("OBJ", p1Object)
+    crc16 = hex(crcmod.predefined.mkCrcFun('crc-16')(p1Object))
+
+    print("Calculated CRC:", crc16)
     print("Object CRC:", objectCRC)
 
-    if calcCrc == objectCRC:
+    if crc16 == objectCRC:
         return True
 
     return False
