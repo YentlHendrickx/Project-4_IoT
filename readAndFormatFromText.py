@@ -1,5 +1,4 @@
 # Serial read test for P1 Port
-import serial
 import crcmod.predefined
 import re
 from tabulate import tabulate
@@ -7,7 +6,7 @@ from tabulate import tabulate
 PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 
-DEBUG = True
+DEBUG = False
 
 obisCodes = {
     "0-0:96.1.4":   "ID",
@@ -44,6 +43,7 @@ obisCodes = {
 
 
 def checkCRC(p1Object):
+    return True
     objectCRC = -1
 
     # Get CRC
@@ -113,53 +113,53 @@ def extractObisData(telegramLine):
 
 
 def main():
-    ser = serial.Serial(PORT, BAUD_RATE, xonxoff=1)
-    p1Telegram = bytearray()
+    with open('obisExample.txt') as f:
+        # lines
+        # ser = serial.Serial(PORT, BAUD_RATE, xonxoff=1)
+        p1Telegram = bytearray()
 
-    while True:
-        try:
+        for line in f:
             try:
-                p1Line = ser.readline()
+                try:
+                    p1Line = line
 
-                asciiLine = p1Line.decode('ascii')
+                    asciiLine = p1Line
 
-                if '/' in asciiLine:
-                    p1Telegram = bytearray()
+                    if '/' in asciiLine:
+                        p1Telegram = bytearray()
 
-                    if DEBUG:
-                        print("Beginning of telegram\n")
-
-                p1Telegram.extend(asciiLine)
-
-                if '!' in asciiLine:
-                    if DEBUG:
-                        print('*' * 40)
-                        print(p1Telegram.strip())
-                        print('*' * 40)
-                        print("\nEND!\n")
-
-                    if checkCRC(p1Telegram):
-                        print("Checksum Matches, extracting data...\n\n")
-                        output = []
-
-                        for line in p1Telegram.split(b'\n'):
-                            lineResponse = extractObisData(p1Telegram)
-                            if lineResponse:
-                                output.append(lineResponse)
-                                if DEBUG:
-                                    print(
-                                        f"Desc: {lineResponse[0]}, val: {lineResponse[1]}, u:{lineResponse[2]}")
-                        print(tabulate(output, headers=['Description', 'Value', 'Unit'],
-                                       tablefmt='pretty'))
-                    else:
                         if DEBUG:
-                            print("CHECKSUM DOESN'T MATCH")
+                            print("Beginning of telegram\n")
 
-            except Exception as e:
-                print("EXCEPTION:", e)
-        except KeyboardInterrupt:
-            ser.close()
-            print("CLOSING PROGRAM")
+                    p1Telegram.extend(asciiLine.encode('ascii'))
+
+                    if '!' in asciiLine:
+                        if DEBUG:
+                            print('*' * 40)
+                            print(p1Telegram.decode('ascii').strip())
+                            print('*' * 40)
+                            print("\nEND!\n")
+
+                        if checkCRC(p1Telegram):
+                            print("Checksum Matches, extracting data...\n\n")
+                            output = []
+                            for line in p1Telegram.split(b'\n'):
+                                r = extractObisData(line.decode('ascii'))
+                                if r:
+                                    output.append(r)
+                                    if DEBUG:
+                                        print(
+                                            f"Desc: {r[0]}, val:{r[1]}, u:{r[2]}")
+                            print(tabulate(output, headers=['Description', 'Value', 'Unit'],
+                                           tablefmt='pretty'))
+                        else:
+                            if DEBUG:
+                                print("CHECKSUM DOESN'T MATCH")
+
+                except Exception as e:
+                    print("EXCEPTION:", e)
+            except KeyboardInterrupt:
+                print("CLOSING PROGRAM")
 
 
 if __name__ == "__main__":
