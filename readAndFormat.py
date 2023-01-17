@@ -4,12 +4,17 @@ import crcmod.predefined
 import re
 from tabulate import tabulate
 
+# usb0 is used for connection with meter
 PORT = "/dev/ttyUSB0"
+
+# Meter baud rate is 115200 (bit/s)
 BAUD_RATE = 115200
 
+# Debug mode
 DEBUG = True
 
-obisCodes = {
+# All OBIS codes with description
+OBIS_CODES = {
     "0-0:96.1.4":   "ID",
     "0-0:96.1.1":   "Serial number of electricity meter (in ASCII hex)",
     "0-0:1.0.0":    "Timestamp of the telegram",
@@ -42,29 +47,44 @@ obisCodes = {
     "0-1:24.2.3":   "Reading from natural gas meter (timestamp) (value)",
 }
 
+# Compare given CRC to calculated CRC
+
 
 def checkCRC(p1Object):
     objectCRC = -1
 
-    # Get CRC
-    for match in re.compile(b'\r\n(?=!)').finditer(p1Object):
-        p1Contents = p1Object[:match.end() + 1].decode('ascii').strip()
+    # Try to find the '!' character, CRC is right after '!'
+    try:
+        # Set index for use in calculation later
+        crcIndex = p1Object.index(b'!')
+        objectCRC = hex(
+            int(p1Object[crcIndex + 1:].decode('ascii').strip(), 16))
 
-        objectCRC = hex(int(p1Contents, 16))
+    except ValueError as e:
+        print("Cannot convert found CRC to Hex: {0}\n".format(e))
 
+    # Couldn't find CRC
     if objectCRC == -1:
-        return False
+        raise IndexError('CRC not found in data.')
 
-    # Calculate CRC
-    crc16 = crcmod.predefined.mkCrcFun('crc-16')
-    calcCrc = hex(crc16((p1Object).encode('utf-8')))
-    print("Calculated CRC:", calcCrc)
-    print("Object CRC:", objectCRC)
+    # Calculate CRC manually
 
-    if calcCrc == objectCRC:
+    # CRC is calculated from '/' char to '!' char
+    crc16 = hex(crcmod.predefined.mkPredefinedCrcFun(
+        'crc16')(p1Object[:crcIndex + 1]))
+
+    if DEBUG:
+        print("Calculated CRC:", crc16)
+        print("Object CRC:", objectCRC)
+
+    # CRC is valid
+    if crc16 == objectCRC:
         return True
 
+    # Invalid CRC
     return False
+
+# Extract OBIS line from data
 
 
 def extractObisData(telegramLine):
@@ -74,21 +94,23 @@ def extractObisData(telegramLine):
     if DEBUG:
         print(f"Parsing: {telegramLine}")
 
-    # Obis code and value are seperated by (
+    # OBIS code and value is seperated by '(' character
     obis = telegramLine.split("(")[0]
 
-    # Check known obis codes
-    if obis in obisCodes:
+    # Check our dict of OBIS codes
+    if obis in OBIS_CODES:
+        # Value is right after '(' char
         values = re.findall(r'\(.*?\)', telegramLine)
         value = values[0][1:-1]
 
+        # Some values might be empty, skip those
         if len(value) > 0:
 
-            # Timestamp needs last character removed
+            #  Timestamps need the last char removed
             if obis == "0-0:1.0.0" or len(values) > 1:
                 value = value[:-1]
 
-            # Connected gasmeter
+            # Gas meter has more than one value, first one is timestamp
             if len(values) > 1:
                 timestamp = value
                 value = values[1][1:-1]
@@ -105,32 +127,41 @@ def extractObisData(telegramLine):
 
             if DEBUG:
                 print(
-                    f"Description: {obisCodes[obis]}, value:{value}, unit:{unit}\n")
+                    f"Description: {OBIS_CODES[obis]}, value:{value}, unit:{unit}\n")
 
-            return (obisCodes[obis], value, unit)
+            return (OBIS_CODES[obis], value, unit)
     else:
         return ()
 
 
 def main():
+    # Setup serial port, with specified BAUD_RATE
     ser = serial.Serial(PORT, BAUD_RATE, xonxoff=1)
+
+    # Create bytearray for storing all values
     p1Telegram = bytearray()
 
     while True:
         try:
             try:
+                # Read next line from serial input
                 p1Line = ser.readline()
 
+                # Decode line to ascii charset
                 asciiLine = p1Line.decode('ascii')
 
+                # Start of telegram is always a '/' character
                 if '/' in asciiLine:
+                    # Clear telegram for current transmission
                     p1Telegram = bytearray()
 
                     if DEBUG:
                         print("Beginning of telegram\n")
 
+                # Add current line to our byte array, encoded as ascii
                 p1Telegram.extend(asciiLine)
 
+                # Telegram always end with '!' character followed by a CRC
                 if '!' in asciiLine:
                     if DEBUG:
                         print('*' * 40)
@@ -138,26 +169,37 @@ def main():
                         print('*' * 40)
                         print("\nEND!\n")
 
+                    # Calculate CRC and compare with given
                     if checkCRC(p1Telegram):
                         print("Checksum Matches, extracting data...\n\n")
+
+                        # List for constructing our output
                         output = []
 
-                        for line in p1Telegram.split(b'\n'):
+                        # Split over new line, every line contains different data
+                        for lineResponse in p1Telegram.split(b'\n'):
+
+                            # Extract our OBIS data
                             lineResponse = extractObisData(p1Telegram)
+
+                            # Append data to our list if not empty
                             if lineResponse:
                                 output.append(lineResponse)
                                 if DEBUG:
                                     print(
                                         f"Desc: {lineResponse[0]}, val: {lineResponse[1]}, u:{lineResponse[2]}")
+
+                        # Print nice table overview of our data
                         print(tabulate(output, headers=['Description', 'Value', 'Unit'],
                                        tablefmt='pretty'))
                     else:
                         if DEBUG:
-                            print("CHECKSUM DOESN'T MATCH")
+                            print("CRC DOESN'T MATCH")
 
             except Exception as e:
                 print("EXCEPTION:", e)
         except KeyboardInterrupt:
+            # Close serial port for future use
             ser.close()
             print("CLOSING PROGRAM")
 
