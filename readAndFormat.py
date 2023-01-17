@@ -2,6 +2,7 @@
 import serial
 import crcmod.predefined
 import re
+from tabulate import tabulate
 
 PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
@@ -66,8 +67,49 @@ def checkCRC(p1Object):
     return False
 
 
-def extractObisData(telegram):
-    pass
+def extractObisData(telegramLine):
+    unit = ""
+    timestamp = ""
+
+    if DEBUG:
+        print(f"Parsing: {telegramLine}")
+
+    # Obis code and value are seperated by (
+    obis = telegramLine.split("(")[0]
+
+    # Check known obis codes
+    if obis in obisCodes:
+        values = re.findall(r'\(.*?\)', telegramLine)
+        value = values[0][1:-1]
+
+        if len(value) > 0:
+
+            # Timestamp needs last character removed
+            if obis == "0-0:1.0.0" or len(values) > 1:
+                value = value[:-1]
+
+            # Connected gasmeter
+            if len(values) > 1:
+                timestamp = value
+                value = values[1][1:-1]
+
+            # Parsing for serial number
+            if "96.1.1" in obis:
+                value = bytearray.fromhex(value).decode()
+            else:
+                lvalue = value.split("*")
+                value = float(lvalue[0])
+
+                if len(lvalue) > 1:
+                    unit = lvalue[1]
+
+            if DEBUG:
+                print(
+                    f"Description: {obisCodes[obis]}, value:{value}, unit:{unit}\n")
+
+            return (obisCodes[obis], value, unit)
+    else:
+        return ()
 
 
 def main():
@@ -87,22 +129,31 @@ def main():
                     if DEBUG:
                         print("Beginning of telegram\n")
 
-                elif '!' in asciiLine:
+                p1Telegram.extend(asciiLine)
+
+                if '!' in asciiLine:
                     if DEBUG:
-                        print("\nEND!\n")
                         print('*' * 40)
                         print(p1Telegram.strip())
                         print('*' * 40)
+                        print("\nEND!\n")
 
                     if checkCRC(p1Telegram):
-                        print("Checksum Matches, extracting data...")
-                        extractObisData(p1Telegram)
+                        print("Checksum Matches, extracting data...\n\n")
+                        output = []
+
+                        for line in p1Telegram.split(b'\n'):
+                            lineResponse = extractObisData(p1Telegram)
+                            if lineResponse:
+                                output.append(lineResponse)
+                                if DEBUG:
+                                    print(
+                                        f"Desc: {lineResponse[0]}, val: {lineResponse[1]}, u:{lineResponse[2]}")
+                        print(tabulate(output, headers=['Description', 'Value', 'Unit'],
+                                       tablefmt='pretty'))
                     else:
                         if DEBUG:
                             print("CHECKSUM DOESN'T MATCH")
-
-                else:
-                    p1Telegram.extend(asciiLine)
 
             except Exception as e:
                 print("EXCEPTION:", e)
