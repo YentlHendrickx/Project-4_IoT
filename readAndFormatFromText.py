@@ -14,6 +14,7 @@ PI_KEY = ""
 SEND_URL = 'URL-GOES-HERE'
 GET_METER_DATA = 'URL-GOES-HERE'
 SEND_DATA = False
+METER_ID = -1
 
 # All OBIS codes with description
 OBIS_CODES = {
@@ -142,8 +143,6 @@ def extractObisData(telegramLine):
 
 
 def sendData(obisOutput):
-    # First we need to find our MeterID
-    # headers = {'Content-Type': 'application/json'}
 
     # Add required data to list
     sendObject = []
@@ -246,6 +245,21 @@ def mainLoop():
             except KeyboardInterrupt:
                 print("CLOSING PROGRAM")
 
+# Try to get meter id from database
+
+
+def getMeterID():
+    global METER_ID
+
+    if METER_ID == -1:
+        headers = {'Content-Type', 'application/json'}
+        response = requests.get(SEND_URL, headers=headers)
+
+        print(response)
+
+        METER_ID = 5
+
+
 # Try to find already defined uuid, if none were found create a new one
 
 
@@ -265,5 +279,9 @@ def createUUID():
 
 
 if __name__ == "__main__":
+    # Setup
     createUUID()
+    getMeterID()
+
+    # Run main loop
     mainLoop()
