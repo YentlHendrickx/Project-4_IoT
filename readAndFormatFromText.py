@@ -2,6 +2,8 @@
 import crcmod.predefined
 import re
 from tabulate import tabulate
+import json
+from datetime import datetime
 
 # Debug mpde
 DEBUG = False
@@ -39,6 +41,10 @@ OBIS_CODES = {
     "0-1:24.4.0":   "Switch position natural gas",
     "0-1:24.2.3":   "Reading from natural gas meter (timestamp) (value)",
 }
+
+OBIS_FOR_SEND = ["0-0:1.0.0", "1-0:1.8.1",
+                 "1-0:1.8.2", "1-0:1.7.0", "0-1:24.2.3"]
+
 
 # Compare given CRC to calculated CRC
 
@@ -125,6 +131,40 @@ def extractObisData(telegramLine):
     else:
         return ()
 
+# Send json object to Database
+
+
+def sendData(obisOutput):
+    # First we need to find our MeterID
+
+    # Add required data to list
+    sendObject = []
+
+    for code in OBIS_FOR_SEND:
+        # Find required obis codes
+        found = list(
+            filter(lambda x: x[0] == OBIS_CODES[code], obisOutput))
+        sendObject.append(found)
+
+    print(sendObject)
+    # Format Datetime
+    dateString = str(int(sendObject[0][0][1]))
+    formatDate = datetime.strptime(
+        dateString, '%y%m%d%H%M%S')
+
+    # Build JSON object
+    outputDict = {
+        "MeterData": {
+            "DateTime":                 dateString,
+            "TotalConsumptionDay":      sendObject[1][0][1],
+            "TotalConsumptionNight":    sendObject[2][0][1],
+            "AllPhaseConsumption":      sendObject[3][0][1],
+            "GasConsumption":           sendObject[4][0][1],
+        }
+    }
+    jsonString = json.dumps(outputDict)
+    print(jsonString)
+
 
 def mainLoop():
     # Use example file
@@ -162,7 +202,7 @@ def mainLoop():
 
                         # Calculate CRC and compare with given
                         if checkCRC(p1Telegram):
-                            print("Checksum Matches, extracting data...\n\n")
+                            print("CRC Matches, extracting data...\n\n")
 
                             # List for constructing our output
                             output = []
@@ -183,6 +223,8 @@ def mainLoop():
                             # Print nice table overview of our data
                             print(tabulate(output, headers=['Description', 'Value', 'Unit'],
                                            tablefmt='pretty'))
+                            sendData(output)
+
                         else:
                             if DEBUG:
                                 print("CRC DOESN'T MATCH")
