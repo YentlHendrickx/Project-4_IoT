@@ -134,7 +134,7 @@ def extractObisData(telegramLine):
         return ()
 
 
-def main():
+def mainLoop():
     # Setup serial port, with specified BAUD_RATE
     ser = serial.Serial(PORT, BAUD_RATE, xonxoff=1)
 
@@ -171,7 +171,7 @@ def main():
 
                     # Calculate CRC and compare with given
                     if checkCRC(p1Telegram):
-                        print("Checksum Matches, extracting data...\n\n")
+                        print("CRC Matches, extracting data...\n\n")
 
                         # List for constructing our output
                         output = []
@@ -205,4 +205,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    mainLoop()
