@@ -12,9 +12,10 @@ DEBUG = False
 PI_KEY = ""
 
 SEND_URL = 'URL-GOES-HERE'
-GET_METER_DATA = 'URL-GOES-HERE'
+GET_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
 SEND_DATA = False
 METER_ID = -1
+METER_ID_DB = -1
 
 # All OBIS codes with description
 OBIS_CODES = {
@@ -49,6 +50,7 @@ OBIS_CODES = {
     "0-1:24.4.0":   "Switch position natural gas",
     "0-1:24.2.3":   "Reading from natural gas meter (timestamp) (value)",
 }
+
 
 OBIS_FOR_SEND = ["0-0:1.0.0", "1-0:1.8.1",
                  "1-0:1.8.2", "1-0:1.7.0", "0-1:24.2.3"]
@@ -94,6 +96,7 @@ def checkCRC(p1Object):
 
 # Extract OBIS line from data
 def extractObisData(telegramLine):
+    global METER_ID
     unit = ""
     timestamp = ""
 
@@ -124,6 +127,10 @@ def extractObisData(telegramLine):
             # Parsing for serial number
             if "96.1.1" in obis:
                 value = bytearray.fromhex(value).decode()
+
+                if "0-0:96.1.1" in obis:
+                    METER_ID = value
+                    print("Serial Number:", value)
             else:
                 lvalue = value.split("*")
                 value = float(lvalue[0])
@@ -143,6 +150,10 @@ def extractObisData(telegramLine):
 
 
 def sendData(obisOutput):
+    global METER_ID
+
+    if METER_ID_DB == -1:
+        getMeterID()
 
     # Add required data to list
     sendObject = []
@@ -172,9 +183,9 @@ def sendData(obisOutput):
     if DEBUG:
         print(jsonString)
 
-    if SEND_DATA:
-        headers = {'Content-Type:' 'application/json'}
-        reponse = requests.post(SEND_URL, headers=headers, json=jsonString)
+    # if SEND_DATA:
+        # headers = {'Content-Type:' 'application/json'}
+        # reponse = requests.post(SEND_URL, headers=headers, json=jsonString)
 
 
 def mainLoop():
@@ -232,8 +243,9 @@ def mainLoop():
                                             f"Desc: {r[0]}, val:{r[1]}, u:{r[2]}")
 
                             # Print nice table overview of our data
-                            print(tabulate(output, headers=['Description', 'Value', 'Unit'],
-                                           tablefmt='pretty'))
+                            if DEBUG:
+                                print(tabulate(output, headers=['Description', 'Value', 'Unit'],
+                                               tablefmt='pretty'))
                             sendData(output)
 
                         else:
@@ -249,15 +261,20 @@ def mainLoop():
 
 
 def getMeterID():
-    global METER_ID
+    global METER_ID, GET_METERS
 
-    if METER_ID == -1:
+    print("Trying to get METER ID...\n\n")
+
+    if METER_ID != -1:
         headers = {'Content-Type', 'application/json'}
-        response = requests.get(SEND_URL, headers=headers)
+        response = requests.get(GET_METERS)
 
-        print(response)
+        # Find correct meter with METER_ID and PI_ID
 
-        METER_ID = 5
+        dbResponse = list(
+            filter(lambda x: x[0][1] == METER_ID,  response.content))
+        print(dbResponse)
+        # METER_ID = 5
 
 
 # Try to find already defined uuid, if none were found create a new one
@@ -281,7 +298,7 @@ def createUUID():
 if __name__ == "__main__":
     # Setup
     createUUID()
-    getMeterID()
+    # getMeterID()
 
     # Run main loop
     mainLoop()
