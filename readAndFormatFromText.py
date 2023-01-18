@@ -5,11 +5,15 @@ from tabulate import tabulate
 import json
 from datetime import datetime
 import uuid
+import requests
 
 # Debug mode
 DEBUG = False
 PI_KEY = ""
 
+SEND_URL = 'URL-GOES-HERE'
+GET_METER_DATA = 'URL-GOES-HERE'
+SEND_DATA = False
 
 # All OBIS codes with description
 OBIS_CODES = {
@@ -139,6 +143,7 @@ def extractObisData(telegramLine):
 
 def sendData(obisOutput):
     # First we need to find our MeterID
+    # headers = {'Content-Type': 'application/json'}
 
     # Add required data to list
     sendObject = []
@@ -149,7 +154,6 @@ def sendData(obisOutput):
             filter(lambda x: x[0] == OBIS_CODES[code], obisOutput))
         sendObject.append(found)
 
-    print(sendObject)
     # Format Datetime
     dateString = str(int(sendObject[0][0][1]))
     formatDate = datetime.strptime(
@@ -166,7 +170,12 @@ def sendData(obisOutput):
         }
     }
     jsonString = json.dumps(outputDict)
-    print(jsonString)
+    if DEBUG:
+        print(jsonString)
+
+    if SEND_DATA:
+        headers = {'Content-Type:' 'application/json'}
+        reponse = requests.post(SEND_URL, headers=headers, json=jsonString)
 
 
 def mainLoop():
