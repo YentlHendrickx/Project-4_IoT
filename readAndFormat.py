@@ -1,8 +1,13 @@
 # Serial read test for P1 Port
-import serial
-import crcmod.predefined
-import re
 from tabulate import tabulate
+from datetime import datetime
+import crcmod.predefined
+import traceback
+import requests
+import serial
+import json
+import uuid
+import re
 
 # usb0 is used for connection with meter
 PORT = "/dev/ttyUSB0"
@@ -12,6 +17,14 @@ BAUD_RATE = 115200
 
 # Debug mode
 DEBUG = True
+PI_KEY = ""
+
+SEND_URL = 'https://meterapiproject4.azurewebsites.net/api/MeterData'
+GET_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
+SEND_DATA = True
+METER_ID = -1
+METER_ID_DB = -1
+
 
 # All OBIS codes with description
 OBIS_CODES = {
@@ -46,6 +59,9 @@ OBIS_CODES = {
     "0-1:24.4.0":   "Switch position natural gas",
     "0-1:24.2.3":   "Reading from natural gas meter (timestamp) (value)",
 }
+
+OBIS_FOR_SEND = ["0-0:1.0.0", "1-0:1.8.1",
+                 "1-0:1.8.2", "1-0:1.7.0", "0-1:24.2.3"]
 
 # Compare given CRC to calculated CRC
 
@@ -88,6 +104,7 @@ def checkCRC(p1Object):
 
 
 def extractObisData(telegramLine):
+    global METER_ID
     unit = ""
     timestamp = ""
 
@@ -118,6 +135,14 @@ def extractObisData(telegramLine):
             # Parsing for serial number
             if "96.1.1" in obis:
                 value = bytearray.fromhex(value).decode()
+
+                if "0-0:96.1.1" in obis:
+                    METER_ID = value
+
+                    if DEBUG:
+                        print("\nSerial Number:", value)
+                        print("")
+
             else:
                 lvalue = value.split("*")
                 value = float(lvalue[0])
@@ -132,6 +157,55 @@ def extractObisData(telegramLine):
             return (OBIS_CODES[obis], value, unit)
     else:
         return ()
+
+# Send json object to Database
+
+
+def sendData(obisOutput):
+    global METER_ID, METER_ID_DB, SEND_URL
+
+    if METER_ID_DB == -1:
+        getDBMeterID()
+
+    # Add required data to list
+    sendObject = []
+
+    for code in OBIS_FOR_SEND:
+        # Find required obis codes
+        found = list(
+            filter(lambda x: x[0] == OBIS_CODES[code], obisOutput))
+        sendObject.append(found)
+
+    # Format Datetime
+    dateString = str(int(sendObject[0][0][1]))
+    formatDate = datetime.strptime(
+        dateString, '%y%m%d%H%M%S')
+
+    meterDataDTO = {
+        "date":                     str(formatDate),
+        "meterId":                  int(METER_ID_DB),
+        "totalConsumptionDay":      float(sendObject[1][0][1]),
+        "totalConsumptionNight":    float(sendObject[2][0][1]),
+        "allPhaseConsumption":      float(sendObject[3][0][1]),
+        "gasConsumption":           float(sendObject[4][0][1]),
+    }
+
+    if DEBUG:
+        print(meterDataDTO)
+
+    if SEND_DATA:
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(
+            SEND_URL, headers=headers, json=meterDataDTO, verify=True)
+
+        if DEBUG:
+            print(response.content)
+            print(response.status_code)
+
+        if response.status_code == 201:
+            print("Data successfully submitted\n")
+        elif response.status_code == 400:
+            print("Error while trying to submit data\n")
 
 
 def mainLoop():
@@ -159,50 +233,110 @@ def mainLoop():
                         print("Beginning of telegram\n")
 
                 # Add current line to our byte array, encoded as ascii
-                p1Telegram.extend(asciiLine)
+                p1Telegram.extend(asciiLine.encode('ascii'))
 
                 # Telegram always end with '!' character followed by a CRC
                 if '!' in asciiLine:
                     if DEBUG:
                         print('*' * 40)
-                        print(p1Telegram.strip())
+                        print(p1Telegram.decode('ascii').strip())
                         print('*' * 40)
                         print("\nEND!\n")
 
                     # Calculate CRC and compare with given
                     if checkCRC(p1Telegram):
-                        print("CRC Matches, extracting data...\n\n")
+
+                        if DEBUG:
+                            print("CRC Matches, extracting data...\n\n")
 
                         # List for constructing our output
                         output = []
 
                         # Split over new line, every line contains different data
-                        for lineResponse in p1Telegram.split(b'\n'):
+                        for line in p1Telegram.split(b'\n'):
 
                             # Extract our OBIS data
-                            lineResponse = extractObisData(p1Telegram)
+                            r = extractObisData(
+                                line.decode('ascii'))
 
                             # Append data to our list if not empty
-                            if lineResponse:
-                                output.append(lineResponse)
+                            if r:
+                                output.append(r)
                                 if DEBUG:
                                     print(
-                                        f"Desc: {lineResponse[0]}, val: {lineResponse[1]}, u:{lineResponse[2]}")
+                                        f"Desc: {r[0]}, val: {r[1]}, u:{r[2]}")
 
                         # Print nice table overview of our data
-                        print(tabulate(output, headers=['Description', 'Value', 'Unit'],
-                                       tablefmt='pretty'))
+                        if DEBUG:
+                            print(tabulate(output, headers=['Description', 'Value', 'Unit'],
+                                           tablefmt='pretty'))
+
+                        sendData(output)
+
                     else:
                         if DEBUG:
                             print("CRC DOESN'T MATCH")
 
             except Exception as e:
                 print("EXCEPTION:", e)
+
+                if DEBUG:
+                    traceback.print_exc()
+
         except KeyboardInterrupt:
             # Close serial port for future use
             ser.close()
             print("CLOSING PROGRAM")
 
+# Try to get meter id from database
+
+
+def getDBMeterID():
+    global METER_ID, GET_METERS, PI_KEY, METER_ID_DB
+
+    METER_ID = 99
+
+    PI_KEY = 99
+
+    print("Trying to get METER ID...\n")
+
+    if METER_ID != -1:
+        response = requests.get(GET_METERS)
+
+        jsonObject = json.loads(response.content)
+
+        # Find correct meter with METER_ID and PI_ID
+
+        foundMeter = list(filter(lambda meter: meter['meterAId'] == METER_ID and meter['rpId'] == PI_KEY, list(
+            jsonObject)))
+
+        if foundMeter != []:
+            METER_ID_DB = foundMeter[0].get('meterId')
+
+            if DEBUG:
+                print("Meter ID in DB:", METER_ID_DB)
+
+# Try to find already defined uuid, if none were found create a new one
+
+
+def createUUID():
+    global PI_KEY
+    with open("uuid.key", 'r+') as keyFile:
+        line = keyFile.readline()
+
+        if len(line) > 0:
+            PI_KEY = line
+            print("Key found.\n\n")
+        else:
+            print("Creating key...\n\n")
+            uid = str(uuid.uuid1())
+            keyFile.writelines(uid)
+            PI_KEY = uid
+
 
 if __name__ == "__main__":
+    # Setup
+    createUUID()
+
+    # Run main loop
     mainLoop()

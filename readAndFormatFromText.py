@@ -9,7 +9,7 @@ import requests
 import traceback
 
 # Debug mode
-DEBUG = False
+DEBUG = True
 PI_KEY = ""
 
 SEND_URL = 'https://meterapiproject4.azurewebsites.net/api/MeterData'
@@ -130,7 +130,10 @@ def extractObisData(telegramLine):
 
                 if "0-0:96.1.1" in obis:
                     METER_ID = value
-                    print("Serial Number:", value)
+
+                    if DEBUG:
+                        print("\nSerial Number:", value)
+                        print("")
             else:
                 lvalue = value.split("*")
                 value = float(lvalue[0])
@@ -169,25 +172,31 @@ def sendData(obisOutput):
     formatDate = datetime.strptime(
         dateString, '%y%m%d%H%M%S')
 
-    # Build JSON object
-    outputDict = {
-        "meterId":                  METER_ID_DB,
-        "date":                     dateString,
-        "totalConsumptionDay":      sendObject[1][0][1],
-        "totalConsumptionNight":    sendObject[2][0][1],
-        "allPhaseConsumption":      sendObject[3][0][1],
-        "gasConsumption":           sendObject[4][0][1],
+    meterDataDTO = {
+        "date":                     str(formatDate),
+        "meterId":                  int(METER_ID_DB),
+        "totalConsumptionDay":      float(sendObject[1][0][1]),
+        "totalConsumptionNight":    float(sendObject[2][0][1]),
+        "allPhaseConsumption":      float(sendObject[3][0][1]),
+        "gasConsumption":           float(sendObject[4][0][1]),
     }
-    jsonString = json.dumps(outputDict)
+
     if DEBUG:
-        print(jsonString)
+        print(meterDataDTO)
 
     if SEND_DATA:
         headers = {'Content-Type': 'application/json'}
-        response = requests.post(SEND_URL, headers=headers, json=jsonString)
+        response = requests.post(
+            SEND_URL, headers=headers, json=meterDataDTO, verify=True)
 
-        print(response.content)
-        print(response.status_code)
+        if DEBUG:
+            print(response.content)
+            print(response.status_code)
+
+        if response.status_code == 201:
+            print("Data successfully submitted\n")
+        elif response.status_code == 400:
+            print("Error while trying to submit data\n")
 
 
 def mainLoop():
@@ -272,10 +281,9 @@ def getDBMeterID():
 
     PI_KEY = 99
 
-    print("Trying to get METER ID...\n\n")
+    print("Trying to get METER ID...\n")
 
     if METER_ID != -1:
-        headers = {'Content-Type', 'application/json'}
         response = requests.get(GET_METERS)
 
         jsonObject = json.loads(response.content)
@@ -287,6 +295,9 @@ def getDBMeterID():
 
         if foundMeter != []:
             METER_ID_DB = foundMeter[0].get('meterId')
+
+            if DEBUG:
+                print("Meter ID in DB:", METER_ID_DB)
 
 # Try to find already defined uuid, if none were found create a new one
 
