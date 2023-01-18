@@ -4,9 +4,12 @@ import re
 from tabulate import tabulate
 import json
 from datetime import datetime
+import uuid
 
-# Debug mpde
+# Debug mode
 DEBUG = False
+PI_KEY = ""
+
 
 # All OBIS codes with description
 OBIS_CODES = {
@@ -234,6 +237,24 @@ def mainLoop():
             except KeyboardInterrupt:
                 print("CLOSING PROGRAM")
 
+# Try to find already defined uuid, if none were found create a new one
+
+
+def createUUID():
+    global PI_KEY
+    with open("uuid.key", 'r+') as keyFile:
+        line = keyFile.readline()
+
+        if len(line) > 0:
+            PI_KEY = line
+            print("Key found.\n\n")
+        else:
+            print("Creating key...\n\n")
+            uid = str(uuid.uuid1())
+            keyFile.writelines(uid)
+            PI_KEY = uid
+
 
 if __name__ == "__main__":
+    createUUID()
     mainLoop()
