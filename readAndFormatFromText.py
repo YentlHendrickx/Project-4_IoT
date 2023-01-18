@@ -6,14 +6,15 @@ import json
 from datetime import datetime
 import uuid
 import requests
+import traceback
 
 # Debug mode
 DEBUG = False
 PI_KEY = ""
 
-SEND_URL = 'URL-GOES-HERE'
+SEND_URL = 'https://meterapiproject4.azurewebsites.net/api/MeterData'
 GET_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
-SEND_DATA = False
+SEND_DATA = True
 METER_ID = -1
 METER_ID_DB = -1
 
@@ -57,7 +58,6 @@ OBIS_FOR_SEND = ["0-0:1.0.0", "1-0:1.8.1",
 
 
 # Compare given CRC to calculated CRC
-
 
 def checkCRC(p1Object):
     crcIndex = -1
@@ -150,10 +150,10 @@ def extractObisData(telegramLine):
 
 
 def sendData(obisOutput):
-    global METER_ID
+    global METER_ID, METER_ID_DB, SEND_URL
 
     if METER_ID_DB == -1:
-        getMeterID()
+        getDBMeterID()
 
     # Add required data to list
     sendObject = []
@@ -171,21 +171,23 @@ def sendData(obisOutput):
 
     # Build JSON object
     outputDict = {
-        "MeterData": {
-            "DateTime":                 dateString,
-            "TotalConsumptionDay":      sendObject[1][0][1],
-            "TotalConsumptionNight":    sendObject[2][0][1],
-            "AllPhaseConsumption":      sendObject[3][0][1],
-            "GasConsumption":           sendObject[4][0][1],
-        }
+        "meterId":                  METER_ID_DB,
+        "date":                     dateString,
+        "totalConsumptionDay":      sendObject[1][0][1],
+        "totalConsumptionNight":    sendObject[2][0][1],
+        "allPhaseConsumption":      sendObject[3][0][1],
+        "gasConsumption":           sendObject[4][0][1],
     }
     jsonString = json.dumps(outputDict)
     if DEBUG:
         print(jsonString)
 
-    # if SEND_DATA:
-        # headers = {'Content-Type:' 'application/json'}
-        # reponse = requests.post(SEND_URL, headers=headers, json=jsonString)
+    if SEND_DATA:
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(SEND_URL, headers=headers, json=jsonString)
+
+        print(response.content)
+        print(response.status_code)
 
 
 def mainLoop():
@@ -254,14 +256,21 @@ def mainLoop():
 
                 except Exception as e:
                     print("EXCEPTION:", e)
+
+                    if True:
+                        traceback.print_exc()
             except KeyboardInterrupt:
                 print("CLOSING PROGRAM")
 
 # Try to get meter id from database
 
 
-def getMeterID():
-    global METER_ID, GET_METERS
+def getDBMeterID():
+    global METER_ID, GET_METERS, PI_KEY, METER_ID_DB
+
+    METER_ID = 99
+
+    PI_KEY = 99
 
     print("Trying to get METER ID...\n\n")
 
@@ -269,13 +278,15 @@ def getMeterID():
         headers = {'Content-Type', 'application/json'}
         response = requests.get(GET_METERS)
 
+        jsonObject = json.loads(response.content)
+
         # Find correct meter with METER_ID and PI_ID
 
-        dbResponse = list(
-            filter(lambda x: x[0][1] == METER_ID,  response.content))
-        print(dbResponse)
-        # METER_ID = 5
+        foundMeter = list(filter(lambda meter: meter['meterAId'] == METER_ID and meter['rpId'] == PI_KEY, list(
+            jsonObject)))
 
+        if foundMeter != []:
+            METER_ID_DB = foundMeter[0].get('meterId')
 
 # Try to find already defined uuid, if none were found create a new one
 
@@ -298,7 +309,6 @@ def createUUID():
 if __name__ == "__main__":
     # Setup
     createUUID()
-    # getMeterID()
 
     # Run main loop
     mainLoop()
