@@ -8,6 +8,7 @@ import serial
 import json
 import uuid
 import re
+import os
 
 # usb0 is used for connection with meter
 PORT = "/dev/ttyUSB0"
@@ -20,7 +21,8 @@ DEBUG = True
 PI_KEY = ""
 
 SEND_URL = 'https://meterapiproject4.azurewebsites.net/api/MeterData'
-GET_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
+GET_USER_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
+GET_SEND_METERS = 'https://meterapiproject4.azurewebsites.net/api/Meter'
 SEND_DATA = True
 METER_ID = -1
 METER_ID_DB = -1
@@ -193,19 +195,18 @@ def sendData(obisOutput):
     if DEBUG:
         print(meterDataDTO)
 
-    if SEND_DATA:
-        headers = {'Content-Type': 'application/json'}
-        response = requests.post(
-            SEND_URL, headers=headers, json=meterDataDTO, verify=True)
+    headers = {'Content-Type': 'application/json'}
+    response = requests.post(
+        SEND_URL, headers=headers, json=meterDataDTO, verify=True)
 
-        if DEBUG:
-            print(response.content)
-            print(response.status_code)
+    if DEBUG:
+        print(response.content)
+        print(response.status_code)
 
-        if response.status_code == 201:
-            print("Data successfully submitted\n")
-        elif response.status_code == 400:
-            print("Error while trying to submit data\n")
+    if response.status_code == 201:
+        print("Data successfully submitted\n")
+    elif response.status_code == 400:
+        print("Error while trying to submit data\n")
 
 
 def mainLoop():
@@ -271,7 +272,8 @@ def mainLoop():
                             print(tabulate(output, headers=['Description', 'Value', 'Unit'],
                                            tablefmt='pretty'))
 
-                        sendData(output)
+                        if SEND_DATA:
+                            sendData(output)
 
                     else:
                         if DEBUG:
@@ -292,36 +294,70 @@ def mainLoop():
 
 
 def getDBMeterID():
-    global METER_ID, GET_METERS, PI_KEY, METER_ID_DB
-
-    METER_ID = 99
-
-    PI_KEY = 99
+    global METER_ID, GET_USER_METERS, PI_KEY, METER_ID_DB
 
     print("Trying to get METER ID...\n")
 
     if METER_ID != -1:
-        response = requests.get(GET_METERS)
+        response = requests.get(GET_USER_METERS)
 
         jsonObject = json.loads(response.content)
 
         # Find correct meter with METER_ID and PI_ID
 
-        foundMeter = list(filter(lambda meter: meter['meterAId'] == METER_ID and meter['rpId'] == PI_KEY, list(
+        foundUserMeter = list(filter(lambda meter: meter['meterDeviceId'] == METER_ID and meter['rpId'] == PI_KEY, list(
             jsonObject)))
 
-        if foundMeter != []:
-            METER_ID_DB = foundMeter[0].get('meterId')
+        if foundUserMeter != []:
+            METER_ID_DB = foundUserMeter[0].get('meterId')
 
             if DEBUG:
                 print("Meter ID in DB:", METER_ID_DB)
+        else:
+            # Meter not found, check if meter exists in DB
+            resp = requests.get(GET_SEND_METERS)
+
+            jsonObj = json.loads(resp.content)
+
+            # Check for meter
+            foundMeteter = list(
+                filter(lambda meter: meter['meterDeviceId'] == METER_ID and meter['rpId'] == PI_KEY, list(jsonObj)))
+
+            if foundMeteter != []:
+                if DEBUG:
+                    print("METER FOUND")
+            else:
+                if DEBUG:
+                    print("NO METER YET")
+
+                headers = {'Content-Type': 'application/json'}
+
+                meterDTO = {
+                    "rpId":             PI_KEY,
+                    "meterDeviceId":    METER_ID
+                }
+
+                meterResp = requests.post(
+                    GET_SEND_METERS, headers=headers, json=meterDTO)
+
+                if meterResp.status_code == 201:
+                    METER_ID_DB = json.loads(meterResp.content)['id']
+
+                    if DEBUG:
+                        print("SET METER ID DB", METER_ID_DB)
+
+                if DEBUG:
+                    print(meterResp.content)
+                    print(meterResp.status_code)
 
 # Try to find already defined uuid, if none were found create a new one
 
 
 def createUUID():
     global PI_KEY
-    with open("uuid.key", 'r+') as keyFile:
+
+    mode = 'r+' if os.path.exists("./uuid.key") else 'w+'
+    with open("uuid.key", mode) as keyFile:
         line = keyFile.readline()
 
         if len(line) > 0:
