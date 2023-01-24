@@ -216,7 +216,12 @@ def mainLoop():
     # Create bytearray for storing all values
     p1Telegram = bytearray()
 
-    while True:
+    # For stopping the program once data was received and processed.
+    gotData = False
+    dataQuantity = 10
+    dataCounter = 0
+
+    while not gotData:
         try:
             try:
                 # Read next line from serial input
@@ -274,6 +279,10 @@ def mainLoop():
 
                         if SEND_DATA:
                             sendData(output)
+                        dataCounter += 1
+                        # Data was received and formatted, stop running
+                        if dataCounter >= dataQuantity:
+                            gotData = True
 
                     else:
                         if DEBUG:
@@ -290,6 +299,9 @@ def mainLoop():
             ser.close()
             print("CLOSING PROGRAM")
 
+    # Close serial port when exiting
+    ser.close()
+
 # Try to get meter id from database
 
 
@@ -298,7 +310,7 @@ def getDBMeterID():
 
     print("Trying to get METER ID...\n")
 
-    if METER_ID != -1:
+    if METER_ID != -1 and METER_ID_DB == -1:
         response = requests.get(GET_USER_METERS)
 
         jsonObject = json.loads(response.content)
@@ -324,8 +336,10 @@ def getDBMeterID():
                 filter(lambda meter: meter['meterDeviceId'] == METER_ID and meter['rpId'] == PI_KEY, list(jsonObj)))
 
             if foundMeteter != []:
+                METER_ID_DB = foundMeteter[0]['id']
                 if DEBUG:
-                    print("METER FOUND")
+                    print("METER FOUND, ID:", METER_ID_DB)
+
             else:
                 if DEBUG:
                     print("NO METER YET")
