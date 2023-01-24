@@ -17,15 +17,22 @@ PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 
 # Debug mode
-DEBUG = True
+DEBUG = False
 PI_KEY = ""
 
+LOGIN_URL = 'https://meterapiproject4.azurewebsites.net/api/User/login'
 SEND_URL = 'https://meterapiproject4.azurewebsites.net/api/MeterData'
 GET_USER_METERS = 'https://meterapiproject4.azurewebsites.net/api/UserMeter'
 GET_SEND_METERS = 'https://meterapiproject4.azurewebsites.net/api/Meter'
 SEND_DATA = True
 METER_ID = -1
 METER_ID_DB = -1
+
+
+# API LOGIN CREDENTIALS
+API_USERNAME = "elek3city@outlook.com"
+API_PW = "raspberry1234"
+API_TOKEN = ""
 
 
 # All OBIS codes with description
@@ -164,7 +171,16 @@ def extractObisData(telegramLine):
 
 
 def sendData(obisOutput):
-    global METER_ID, METER_ID_DB, SEND_URL
+    global METER_ID, METER_ID_DB, SEND_URL, LOGIN_URL, API_TOKEN
+
+    # Login
+    if API_TOKEN == "":
+        userDto = {
+            "email": API_USERNAME,
+            "password": API_PW,
+        }
+        response = json.loads(requests.post(LOGIN_URL, json=userDto).content)
+        API_TOKEN = 'Bearer ' + response['token']
 
     if METER_ID_DB == -1:
         getDBMeterID()
@@ -195,7 +211,7 @@ def sendData(obisOutput):
     if DEBUG:
         print(meterDataDTO)
 
-    headers = {'Content-Type': 'application/json'}
+    headers = {'Content-Type': 'application/json', 'Authorization': API_TOKEN}
     response = requests.post(
         SEND_URL, headers=headers, json=meterDataDTO, verify=True)
 
@@ -218,86 +234,86 @@ def mainLoop():
 
     # For stopping the program once data was received and processed.
     gotData = False
-    dataQuantity = 10
+    dataQuantity = 1
     dataCounter = 0
 
     while not gotData:
         try:
-            try:
-                # Read next line from serial input
-                p1Line = ser.readline()
+            # Read next line from serial input
+            p1Line = ser.readline()
 
-                # Decode line to ascii charset
-                asciiLine = p1Line.decode('ascii')
+            # Decode line to ascii charset
+            asciiLine = p1Line.decode('ascii')
 
-                # Start of telegram is always a '/' character
-                if '/' in asciiLine:
-                    # Clear telegram for current transmission
-                    p1Telegram = bytearray()
-
-                    if DEBUG:
-                        print("Beginning of telegram\n")
-
-                # Add current line to our byte array, encoded as ascii
-                p1Telegram.extend(asciiLine.encode('ascii'))
-
-                # Telegram always end with '!' character followed by a CRC
-                if '!' in asciiLine:
-                    if DEBUG:
-                        print('*' * 40)
-                        print(p1Telegram.decode('ascii').strip())
-                        print('*' * 40)
-                        print("\nEND!\n")
-
-                    # Calculate CRC and compare with given
-                    if checkCRC(p1Telegram):
-
-                        if DEBUG:
-                            print("CRC Matches, extracting data...\n\n")
-
-                        # List for constructing our output
-                        output = []
-
-                        # Split over new line, every line contains different data
-                        for line in p1Telegram.split(b'\n'):
-
-                            # Extract our OBIS data
-                            r = extractObisData(
-                                line.decode('ascii'))
-
-                            # Append data to our list if not empty
-                            if r:
-                                output.append(r)
-                                if DEBUG:
-                                    print(
-                                        f"Desc: {r[0]}, val: {r[1]}, u:{r[2]}")
-
-                        # Print nice table overview of our data
-                        if DEBUG:
-                            print(tabulate(output, headers=['Description', 'Value', 'Unit'],
-                                           tablefmt='pretty'))
-
-                        if SEND_DATA:
-                            sendData(output)
-                        dataCounter += 1
-                        # Data was received and formatted, stop running
-                        if dataCounter >= dataQuantity:
-                            gotData = True
-
-                    else:
-                        if DEBUG:
-                            print("CRC DOESN'T MATCH")
-
-            except Exception as e:
-                print("EXCEPTION:", e)
+            # Start of telegram is always a '/' character
+            if '/' in asciiLine:
+                # Clear telegram for current transmission
+                p1Telegram = bytearray()
 
                 if DEBUG:
-                    traceback.print_exc()
+                    print("Beginning of telegram\n")
+
+            # Add current line to our byte array, encoded as ascii
+            p1Telegram.extend(asciiLine.encode('ascii'))
+
+            # Telegram always end with '!' character followed by a CRC
+            if '!' in asciiLine:
+                if DEBUG:
+                    print('*' * 40)
+                    print(p1Telegram.decode('ascii').strip())
+                    print('*' * 40)
+                    print("\nEND!\n")
+
+                # Calculate CRC and compare with given
+                if checkCRC(p1Telegram):
+
+                    if DEBUG:
+                        print("CRC Matches, extracting data...\n\n")
+
+                    # List for constructing our output
+                    output = []
+
+                    # Split over new line, every line contains different data
+                    for line in p1Telegram.split(b'\n'):
+
+                        # Extract our OBIS data
+                        r = extractObisData(
+                            line.decode('ascii'))
+
+                        # Append data to our list if not empty
+                        if r:
+                            output.append(r)
+                            if DEBUG:
+                                print(
+                                    f"Desc: {r[0]}, val: {r[1]}, u:{r[2]}")
+
+                    # Print nice table overview of our data
+                    if DEBUG:
+                        print(tabulate(output, headers=['Description', 'Value', 'Unit'],
+                                       tablefmt='pretty'))
+
+                    if SEND_DATA:
+                        sendData(output)
+                    dataCounter += 1
+                    # Data was received and formatted, stop running
+                    if dataCounter >= dataQuantity:
+                        gotData = True
+
+                else:
+                    if DEBUG:
+                        print("CRC DOESN'T MATCH")
+
+        except Exception as e:
+            print("EXCEPTION:", e)
+
+            if DEBUG:
+                traceback.print_exc()
 
         except KeyboardInterrupt:
             # Close serial port for future use
             ser.close()
             print("CLOSING PROGRAM")
+            break
 
     # Close serial port when exiting
     ser.close()
@@ -306,12 +322,15 @@ def mainLoop():
 
 
 def getDBMeterID():
-    global METER_ID, GET_USER_METERS, PI_KEY, METER_ID_DB
+    global METER_ID, GET_USER_METERS, PI_KEY, METER_ID_DB, API_TOKEN
 
     print("Trying to get METER ID...\n")
 
     if METER_ID != -1 and METER_ID_DB == -1:
-        response = requests.get(GET_USER_METERS)
+        headers = {
+            'Authorization': API_TOKEN
+        }
+        response = requests.get(GET_USER_METERS, headers=headers)
 
         jsonObject = json.loads(response.content)
 
@@ -327,7 +346,10 @@ def getDBMeterID():
                 print("Meter ID in DB:", METER_ID_DB)
         else:
             # Meter not found, check if meter exists in DB
-            resp = requests.get(GET_SEND_METERS)
+            headers = {
+                'Authorization': API_TOKEN
+            }
+            resp = requests.get(GET_SEND_METERS, headers=headers)
 
             jsonObj = json.loads(resp.content)
 
@@ -344,7 +366,8 @@ def getDBMeterID():
                 if DEBUG:
                     print("NO METER YET")
 
-                headers = {'Content-Type': 'application/json'}
+                headers = {'Content-Type': 'application/json',
+                           'Authorization': API_TOKEN}
 
                 meterDTO = {
                     "rpId":             PI_KEY,
